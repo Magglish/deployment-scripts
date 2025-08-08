@@ -18,15 +18,13 @@ copy_cuda_keyring() {
   local attempt
   local matched_file=""
 
-  for attempt in {1..5}; do
-    for pattern in 'cuda-*-keyring.gpg' 'cuda-*--keyring.gpg'; do
-      for candidate in "${source_dir}/${pattern}"; do
-        if [[ -f "${candidate}" ]]; then
-          matched_file="${candidate}"
-          break 3
-        fi
-      done
-    done
+  for attempt in {1..15}; do
+    local candidate
+    candidate=$(compgen -G "${source_dir}/cuda-*-keyring.gpg" | head -n1 || true)
+    if [[ -n "$candidate" ]]; then
+      matched_file="$candidate"
+      break
+    fi
     sleep 1
   done
 
@@ -34,6 +32,7 @@ copy_cuda_keyring() {
     die "CUDA keyring not found in ${source_dir} after retries"
   fi
 
+  log "Copying CUDA keyring: ${matched_file} -> ${destination_dir}/"
   cp "${matched_file}" "${destination_dir}/"
 }
 
