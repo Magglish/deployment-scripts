@@ -19,6 +19,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 KEYRING_DIR="/etc/apt/keyrings"
 KEY_FILE="${KEYRING_DIR}/cuda-archive-keyring.gpg"
+SHARE_KEYRING_DIR="/usr/share/keyrings"
 
 # Detect distro and version
 [[ -r /etc/os-release ]] || die "/etc/os-release not found; unsupported distribution"
@@ -41,28 +42,89 @@ if [[ "${DEB_ARCH}" != "amd64" ]]; then
 fi
 NVIDIA_ARCH="x86_64"
 
-# Build NVIDIA repo distro string, e.g. ubuntu2204, ubuntu2404, debian12
+# Build convenience strings
 OS_VERSION_COMPACT="${OS_VERSION_ID//./}"
+OS_VERSION_MAJOR="${OS_VERSION_ID%%.*}"
 DIST_STRING="${OS_ID}${OS_VERSION_COMPACT}"
 
-REPO_URL="https://developer.download.nvidia.com/compute/cuda/repos/${DIST_STRING}/${NVIDIA_ARCH}"
-SOURCE_LIST_FILE="/etc/apt/sources.list.d/cuda-${DIST_STRING}-${NVIDIA_ARCH}.list"
-KEYRING_DEB_URL="${REPO_URL}/cuda-keyring_1.1-1_all.deb"
-
 log "Target distribution: ${OS_ID} ${OS_VERSION_ID} (${DIST_STRING}), arch: ${DEB_ARCH} (NVIDIA: ${NVIDIA_ARCH})"
-log "Using CUDA APT repo: ${REPO_URL}"
 
 
-# Ensure cuda-keyring is installed (preferred method by NVIDIA)
-if dpkg -s cuda-keyring >/dev/null 2>&1; then
-  log "cuda-keyring is already installed."
-else
-  TMP_DEB="/tmp/cuda-keyring_1.1-1_all.deb"
-  log "Downloading cuda-keyring from: ${KEYRING_DEB_URL}"
-  curl -fL --retry 3 --retry-delay 2 -o "${TMP_DEB}" "${KEYRING_DEB_URL}"
-  log "Installing cuda-keyring..."
-  dpkg -i "${TMP_DEB}" || die "Failed to install cuda-keyring"
-fi
+# Install CUDA 12.4 repository via local installer package
+install -d -m 0755 "${SHARE_KEYRING_DIR}"
+
+case "${OS_ID}" in
+  debian)
+    case "${OS_VERSION_MAJOR}" in
+      12|11|10) ;;
+      *) die "Unsupported Debian version: ${OS_VERSION_ID}. Supported: 12, 11, 10." ;;
+    esac
+
+    LOCAL_REPO_PKG="cuda-repo-debian${OS_VERSION_MAJOR}-12-4-local"
+    REPO_DEB="${LOCAL_REPO_PKG}_12.4.0-550.54.14-1_amd64.deb"
+    REPO_URL_DEB="https://developer.download.nvidia.com/compute/cuda/12.4.0/local_installers/${REPO_DEB}"
+    TMP_DEB="/tmp/${REPO_DEB}"
+
+    if dpkg -s "${LOCAL_REPO_PKG}" >/dev/null 2>&1; then
+      log "${LOCAL_REPO_PKG} already installed; skipping download."
+    else
+      log "Downloading local CUDA repo installer: ${REPO_URL_DEB}"
+      curl -fL --retry 3 --retry-delay 2 -o "${TMP_DEB}" "${REPO_URL_DEB}"
+      log "Installing local CUDA repo: ${REPO_DEB}"
+      dpkg -i "${TMP_DEB}" || die "Failed to install ${REPO_DEB}"
+    fi
+
+    LOCAL_REPO_DIR="/var/cuda-repo-debian${OS_VERSION_MAJOR}-12-4-local"
+    if compgen -G "${LOCAL_REPO_DIR}/cuda-*-keyring.gpg" > /dev/null; then
+      cp "${LOCAL_REPO_DIR}/cuda-"*-"-keyring.gpg" "${SHARE_KEYRING_DIR}/"
+    else
+      die "CUDA keyring not found in ${LOCAL_REPO_DIR}"
+    fi
+
+    if ! command -v add-apt-repository >/dev/null 2>&1; then
+      log "Installing software-properties-common to enable add-apt-repository..."
+      apt-get update -y
+      apt-get install -y software-properties-common
+    fi
+    log "Ensuring 'contrib' component is enabled..."
+    add-apt-repository -y contrib || true
+    ;;
+
+  ubuntu)
+    case "${OS_VERSION_COMPACT}" in
+      2204|2004) ;;
+      *) die "Unsupported Ubuntu version: ${OS_VERSION_ID}. Supported: 22.04, 20.04." ;;
+    esac
+
+    PIN_URL="https://developer.download.nvidia.com/compute/cuda/repos/ubuntu${OS_VERSION_COMPACT}/${NVIDIA_ARCH}/cuda-ubuntu${OS_VERSION_COMPACT}.pin"
+    PIN_DST="/etc/apt/preferences.d/cuda-repository-pin-600"
+    TMP_PIN="/tmp/cuda-ubuntu${OS_VERSION_COMPACT}.pin"
+    log "Downloading CUDA APT pin: ${PIN_URL}"
+    curl -fL --retry 3 --retry-delay 2 -o "${TMP_PIN}" "${PIN_URL}"
+    mv "${TMP_PIN}" "${PIN_DST}"
+
+    LOCAL_REPO_PKG="cuda-repo-ubuntu${OS_VERSION_COMPACT}-12-4-local"
+    REPO_DEB="${LOCAL_REPO_PKG}_12.4.0-550.54.14-1_amd64.deb"
+    REPO_URL_DEB="https://developer.download.nvidia.com/compute/cuda/12.4.0/local_installers/${REPO_DEB}"
+    TMP_DEB="/tmp/${REPO_DEB}"
+
+    if dpkg -s "${LOCAL_REPO_PKG}" >/dev/null 2>&1; then
+      log "${LOCAL_REPO_PKG} already installed; skipping download."
+    else
+      log "Downloading local CUDA repo installer: ${REPO_URL_DEB}"
+      curl -fL --retry 3 --retry-delay 2 -o "${TMP_DEB}" "${REPO_URL_DEB}"
+      log "Installing local CUDA repo: ${REPO_DEB}"
+      dpkg -i "${TMP_DEB}" || die "Failed to install ${REPO_DEB}"
+    fi
+
+    LOCAL_REPO_DIR="/var/cuda-repo-ubuntu${OS_VERSION_COMPACT}-12-4-local"
+    if compgen -G "${LOCAL_REPO_DIR}/cuda-*-keyring.gpg" > /dev/null; then
+      cp "${LOCAL_REPO_DIR}/cuda-"*-"-keyring.gpg" "${SHARE_KEYRING_DIR}/"
+    else
+      die "CUDA keyring not found in ${LOCAL_REPO_DIR}"
+    fi
+    ;;
+esac
 
 log "Updating apt package index..."
 apt-get update -y
