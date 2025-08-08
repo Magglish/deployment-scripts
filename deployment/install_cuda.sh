@@ -47,34 +47,21 @@ DIST_STRING="${OS_ID}${OS_VERSION_COMPACT}"
 
 REPO_URL="https://developer.download.nvidia.com/compute/cuda/repos/${DIST_STRING}/${NVIDIA_ARCH}"
 SOURCE_LIST_FILE="/etc/apt/sources.list.d/cuda-${DIST_STRING}-${NVIDIA_ARCH}.list"
+KEYRING_DEB_URL="${REPO_URL}/cuda-keyring_1.1-1_all.deb"
 
 log "Target distribution: ${OS_ID} ${OS_VERSION_ID} (${DIST_STRING}), arch: ${DEB_ARCH} (NVIDIA: ${NVIDIA_ARCH})"
 log "Using CUDA APT repo: ${REPO_URL}"
 
-# Ensure keyring directory exists
-install -d -m 0755 "${KEYRING_DIR}"
 
-# Install NVIDIA CUDA repo keyring
-if [[ ! -s "${KEY_FILE}" ]]; then
-  log "Fetching CUDA repository key to ${KEY_FILE}..."
-  curl -fsSL "${REPO_URL}/cuda-keyring_1.1-1_all.deb" -o "${KEY_FILE}"
-  chmod 0644 "${KEY_FILE}"
+# Ensure cuda-keyring is installed (preferred method by NVIDIA)
+if dpkg -s cuda-keyring >/dev/null 2>&1; then
+  log "cuda-keyring is already installed."
 else
-  log "CUDA repository key already present at ${KEY_FILE}"
-fi
-
-# Configure apt source list for CUDA repo
-EXPECTED_DEB_LINE="deb [signed-by=${KEY_FILE}] ${REPO_URL} /"
-if [[ -f "${SOURCE_LIST_FILE}" ]]; then
-  if grep -Fqx "${EXPECTED_DEB_LINE}" "${SOURCE_LIST_FILE}"; then
-    log "CUDA apt repository already configured at ${SOURCE_LIST_FILE}"
-  else
-    log "Updating CUDA apt repository entry at ${SOURCE_LIST_FILE}"
-    printf "%s\n" "${EXPECTED_DEB_LINE}" > "${SOURCE_LIST_FILE}"
-  fi
-else
-  log "Adding CUDA apt repository at ${SOURCE_LIST_FILE}"
-  printf "%s\n" "${EXPECTED_DEB_LINE}" > "${SOURCE_LIST_FILE}"
+  TMP_DEB="/tmp/cuda-keyring_1.1-1_all.deb"
+  log "Downloading cuda-keyring from: ${KEYRING_DEB_URL}"
+  curl -fL --retry 3 --retry-delay 2 -o "${TMP_DEB}" "${KEYRING_DEB_URL}"
+  log "Installing cuda-keyring..."
+  dpkg -i "${TMP_DEB}" || die "Failed to install cuda-keyring"
 fi
 
 log "Updating apt package index..."
