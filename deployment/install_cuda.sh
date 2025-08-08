@@ -57,7 +57,7 @@ install -d -m 0755 "${KEYRING_DIR}"
 # Install NVIDIA CUDA repo keyring
 if [[ ! -s "${KEY_FILE}" ]]; then
   log "Fetching CUDA repository key to ${KEY_FILE}..."
-  curl -fsSL "${REPO_URL}/cuda-archive-keyring.gpg" -o "${KEY_FILE}"
+  curl -fsSL "${REPO_URL}/cuda-keyring_1.1-1_all.deb" -o "${KEY_FILE}"
   chmod 0644 "${KEY_FILE}"
 else
   log "CUDA repository key already present at ${KEY_FILE}"
