@@ -10,6 +10,33 @@ set -Eeuo pipefail
 log() { echo "[$(date -Is)] $*"; }
 die() { echo "[$(date -Is)] ERROR: $*" >&2; exit 1; }
 
+# Find and copy CUDA keyring file from a local repo directory to a destination keyrings directory.
+# Retries briefly to account for post-install file creation delays.
+copy_cuda_keyring() {
+  local source_dir="$1"
+  local destination_dir="$2"
+  local attempt
+  local matched_file=""
+
+  for attempt in {1..5}; do
+    for pattern in 'cuda-*-keyring.gpg' 'cuda-*--keyring.gpg'; do
+      for candidate in "${source_dir}/${pattern}"; do
+        if [[ -f "${candidate}" ]]; then
+          matched_file="${candidate}"
+          break 3
+        fi
+      done
+    done
+    sleep 1
+  done
+
+  if [[ -z "${matched_file}" ]]; then
+    die "CUDA keyring not found in ${source_dir} after retries"
+  fi
+
+  cp "${matched_file}" "${destination_dir}/"
+}
+
 # Must run as root
 if [[ "$(id -u)" -ne 0 ]]; then
   die "This script must be run as root. Use: sudo $0"
@@ -75,11 +102,7 @@ case "${OS_ID}" in
     fi
 
     LOCAL_REPO_DIR="/var/cuda-repo-debian${OS_VERSION_MAJOR}-12-4-local"
-    if compgen -G "${LOCAL_REPO_DIR}/cuda-*-keyring.gpg" > /dev/null; then
-      cp "${LOCAL_REPO_DIR}/cuda-"*-"-keyring.gpg" "${SHARE_KEYRING_DIR}/"
-    else
-      die "CUDA keyring not found in ${LOCAL_REPO_DIR}"
-    fi
+    copy_cuda_keyring "${LOCAL_REPO_DIR}" "${SHARE_KEYRING_DIR}"
 
     if ! command -v add-apt-repository >/dev/null 2>&1; then
       log "Installing software-properties-common to enable add-apt-repository..."
@@ -118,11 +141,7 @@ case "${OS_ID}" in
     fi
 
     LOCAL_REPO_DIR="/var/cuda-repo-ubuntu${OS_VERSION_COMPACT}-12-4-local"
-    if compgen -G "${LOCAL_REPO_DIR}/cuda-*-keyring.gpg" > /dev/null; then
-      cp "${LOCAL_REPO_DIR}/cuda-"*-"-keyring.gpg" "${SHARE_KEYRING_DIR}/"
-    else
-      die "CUDA keyring not found in ${LOCAL_REPO_DIR}"
-    fi
+    copy_cuda_keyring "${LOCAL_REPO_DIR}" "${SHARE_KEYRING_DIR}"
     ;;
 esac
 
